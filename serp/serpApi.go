@@ -7,7 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 
@@ -200,64 +200,16 @@ func (f *Flex[T]) UnmarshalJSON(data []byte) error {
 func (f Flex[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f.Value)
 }
-
-// Resolves the location for the location and q in the query
-func resolveLocation(cityName, apiKey string) (string, error) {
-	apiURL := fmt.Sprintf(
-		"https://serpapi.com/locations.json?q=%s&limit=5",
-		url.QueryEscape(cityName),
-	)
-	// Note: locations endpoint does NOT need api_key
-
-	resp, err := http.Get(apiURL)
-	if err != nil {
-		return cityName, err
-	}
-	defer resp.Body.Close()
-
-	var locations []struct {
-		Name        string `json:"name"`
-		CountryCode string `json:"country_code"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&locations); err != nil {
-		return cityName, err
-	}
-
-	log.Printf("Locations API returned %d results for '%s'", len(locations), cityName)
-	for _, l := range locations {
-		log.Printf("  → %s (%s)", l.Name, l.CountryCode)
-	}
-
-	// Pick the first result that matches country code IN
-	for _, l := range locations {
-		if l.CountryCode == "IN" {
-			return l.Name, nil
-		}
-	}
-
-	if len(locations) > 0 {
-		return locations[0].Name, nil
-	}
-
-	return cityName, fmt.Errorf("no location found for: %s", cityName)
-}
 func fetchHotels(query, location, checkIn, checkOut, apiKey, gl, currency, googleDomain string) (*SerpAPIResponse, error) {
-
-	resolvedLocation, err := resolveLocation(location, apiKey)
-	if err != nil {
-		log.Printf("location resolve warning: %v, using raw: %s", err, location)
-		resolvedLocation = location
-	}
-	log.Printf("Resolved location: %s", resolvedLocation)
 
 	setting := serpapi.NewSerpApiClientSetting(apiKey)
 	setting.Engine = "google_hotels"
+
 	client := serpapi.NewClient(setting)
 
 	params := map[string]string{
-		"q":             query + " in " + resolvedLocation,
-		"location":      resolvedLocation,
+		"q":             query,
+		"location":      location,
 		"hl":            "en",
 		"gl":            gl,
 		"google_domain": googleDomain,
@@ -276,7 +228,6 @@ func fetchHotels(query, location, checkIn, checkOut, apiKey, gl, currency, googl
 	if err != nil {
 		return nil, err
 	}
-	// log.Printf("SerpAPI raw response: %s", string(raw))
 
 	var response SerpAPIResponse
 
@@ -336,7 +287,7 @@ func ConvertTheToAffiliateLink(trs int, marker int, propertyURL string, token st
 
 func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 
-	apiKey := "ae8ab742e8f27b920de320108a6bf1387611e2b4be0b03d79603185b1d07dda3"
+	apiKey := os.Getenv("SERP_API_KEY")
 	if apiKey == "" {
 		http.Error(
 			w,
@@ -403,15 +354,15 @@ func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert hotel links to affiliate links
-	travelToken := "6c2cd5864e5385f6edcbf5e2668f686b"
-	trsInt := 123456
-	markerInt := 789012
+	travelToken := os.Getenv("TRAVELPAYOUTS_TOKEN")
+	trsInt, _ := strconv.Atoi(os.Getenv("TP_TRS"))
+	markerInt, _ := strconv.Atoi(os.Getenv("TP_MARKER"))
 
 	for i, hotel := range data.Properties {
-		// original := hotel.Link
+		original := hotel.Link
 		affiliate := ConvertTheToAffiliateLink(
-			trsInt,
-			markerInt,
+			int(trsInt),
+			int(markerInt),
 			hotel.Link,
 			travelToken,
 		)
@@ -425,8 +376,8 @@ func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 
 		// fmt.Println("Affiliate:", affiliate)
 
-		// fmt.Println("Original:", original)
-		// fmt.Println("Affiliate:", affiliate)
+		fmt.Println("Original:", original)
+		fmt.Println("Affiliate:", affiliate)
 		data.Properties[i].Link = affiliate
 	}
 
