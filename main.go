@@ -17,6 +17,7 @@ import (
 
 type SerpAPIResponse struct {
 	SearchMetadata SearchMetadata `json:"search_metadata"`
+	Ads            []Ad           `json:"ads"`
 	Properties     []Property     `json:"properties"`
 }
 type SearchMetadata struct {
@@ -133,6 +134,29 @@ type AffiliateLinkResponse struct {
 	Code   string `json:"code"`
 	Status int    `json:"status"`
 }
+
+type Ad struct {
+	Name       string `json:"name"`
+	Source     string `json:"source"`
+	SourceIcon string `json:"source_icon"`
+	Link       string `json:"link"`
+
+	PropertyToken       string `json:"property_token"`
+	PropertyDetailsLink string `json:"serpapi_property_details_link"`
+
+	GPSCoordinates GPSCoordinates `json:"gps_coordinates"`
+
+	HotelClass    Flex[string] `json:"hotel_class"`
+	Thumbnail     string       `json:"thumbnail"`
+	OverallRating float64      `json:"overall_rating"`
+	Reviews       int          `json:"reviews"`
+
+	Price          string  `json:"price"`
+	ExtractedPrice float64 `json:"extracted_price"`
+
+	Amenities        []string `json:"amenities"`
+	FreeCancellation bool     `json:"free_cancellation"`
+}
 type Flex[T any] struct {
 	Value T
 }
@@ -202,7 +226,7 @@ func (f Flex[T]) MarshalJSON() ([]byte, error) {
 }
 
 // Resolves the location for the location and q in the query
-func resolveLocation(cityName, apiKey string) (string, error) {
+func resolveLocation(cityName string) (string, error) {
 	apiURL := fmt.Sprintf(
 		"https://serpapi.com/locations.json?q=%s&limit=5",
 		url.QueryEscape(cityName),
@@ -244,7 +268,7 @@ func resolveLocation(cityName, apiKey string) (string, error) {
 }
 func fetchHotels(query, location, checkIn, checkOut, apiKey, gl, currency, googleDomain string) (*SerpAPIResponse, error) {
 
-	resolvedLocation, err := resolveLocation(location, apiKey)
+	resolvedLocation, err := resolveLocation(location)
 	if err != nil {
 		log.Printf("location resolve warning: %v, using raw: %s", err, location)
 		resolvedLocation = location
@@ -407,27 +431,35 @@ func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 	trsInt := 123456
 	markerInt := 789012
 
+	// for i, hotel := range data.Properties {
+	// 	// original := hotel.Link
+	// 	affiliate := ConvertTheToAffiliateLink(
+	// 		trsInt,
+	// 		markerInt,
+	// 		hotel.Link,
+	// 		travelToken,
+	// 	)
+	//  for example to check if it actaully convert to affiliate link for not (Works perfect)
+	// affiliate := ConvertTheToAffiliateLink(
+	// 	trsInt,
+	// 	markerInt,
+	// 	"https://www.booking.com/",
+	// 	travelToken,
+	// )
+
+	// data.Properties[i].Link = affiliate
+	// }
+
 	for i, hotel := range data.Properties {
-		// original := hotel.Link
-		affiliate := ConvertTheToAffiliateLink(
-			trsInt,
-			markerInt,
-			hotel.Link,
-			travelToken,
+		data.Properties[i].Link = ConvertTheToAffiliateLink(
+			trsInt, markerInt, hotel.Link, travelToken,
 		)
-		//  for example to check if it actaully convert to affiliate link for not (Works perfect)
-		// affiliate := ConvertTheToAffiliateLink(
-		// 	trsInt,
-		// 	markerInt,
-		// 	"https://www.booking.com/",
-		// 	travelToken,
-		// )
+	}
 
-		// fmt.Println("Affiliate:", affiliate)
-
-		// fmt.Println("Original:", original)
-		// fmt.Println("Affiliate:", affiliate)
-		data.Properties[i].Link = affiliate
+	for i, ad := range data.Ads {
+		data.Ads[i].Link = ConvertTheToAffiliateLink(
+			trsInt, markerInt, ad.Link, travelToken,
+		)
 	}
 
 	w.Header().Set(
