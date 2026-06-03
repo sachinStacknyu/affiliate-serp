@@ -451,15 +451,25 @@ func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 	// }
 
 	for i, hotel := range data.Properties {
-		data.Properties[i].Link = ConvertTheToAffiliateLink(
-			trsInt, markerInt, hotel.Link, travelToken,
-		)
+		if hotel.Link != "" {
+			data.Properties[i].Link = ConvertTheToAffiliateLink(
+				trsInt, markerInt, hotel.Link, travelToken,
+			)
+		}
 	}
 
 	for i, ad := range data.Ads {
-		data.Ads[i].Link = ConvertTheToAffiliateLink(
-			trsInt, markerInt, ad.Link, travelToken,
-		)
+		if ad.Link != "" {
+			data.Ads[i].Link = ConvertTheToAffiliateLink(
+				trsInt, markerInt, ad.Link, travelToken,
+			)
+		}
+	}
+	log.Printf("Properties count: %d", len(data.Properties))
+	log.Printf("Ads count: %d", len(data.Ads))
+
+	for _, ad := range data.Ads {
+		log.Printf("Ad link: %s", ad.Link)
 	}
 
 	w.Header().Set(
