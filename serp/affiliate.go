@@ -1,4 +1,4 @@
-package main
+package serp
 
 import (
 	"bytes"
@@ -15,7 +15,6 @@ import (
 	serpapi "github.com/serpapi/serpapi-golang"
 )
 
-// Affiliate link code
 type AffiliateLinkRequest struct {
 	Trs     int    `json:"trs"`
 	Marker  int    `json:"marker"`
@@ -100,8 +99,6 @@ func ApplyAffiliateLinks(data *SerpAPIResponse, trs, marker int, token string) {
 	}
 }
 
-//  Serp API code
-
 type SerpAPIResponse struct {
 	SearchMetadata    SearchMetadata `json:"search_metadata"`
 	SearchInformation map[string]any `json:"search_information"`
@@ -171,6 +168,10 @@ func (d *PropertyDetailResponse) ToSerpAPIResponse() *SerpAPIResponse {
 		Properties:        []Property{p},
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared domain types
+// ─────────────────────────────────────────────────────────────────────────────
 
 type SearchMetadata struct {
 	ID             string        `json:"id"`
@@ -336,6 +337,10 @@ func (f Flex[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f.Value)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Search options
+// ─────────────────────────────────────────────────────────────────────────────
+
 // HotelSearchOptions holds all parameters for both search and detail mode.
 // Set PropertyToken to activate detail mode; filter fields are ignored in that case.
 type HotelSearchOptions struct {
@@ -364,6 +369,10 @@ type HotelSearchOptions struct {
 	PropertyToken string
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
 // FetchHotels dispatches to either hotel-list or property-detail mode.
 // NewClient returns a SerpApiClient value (not a pointer) per the SDK contract.
 func FetchHotels(opts HotelSearchOptions) (*SerpAPIResponse, error) {
@@ -376,6 +385,10 @@ func FetchHotels(opts HotelSearchOptions) (*SerpAPIResponse, error) {
 	}
 	return fetchHotelList(client, opts)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal fetch helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 // fetchHotelList performs a standard hotel search returning multiple properties.
 // Accepts serpapi.SerpApiClient by value, matching what NewClient returns.
@@ -465,6 +478,10 @@ func searchAndDecode[T any](client serpapi.SerpApiClient, params map[string]stri
 	}
 	return &out, nil
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 // cleanParams removes empty-string values so SerpAPI isn't confused by them.
 func cleanParams(params map[string]string) map[string]string {
@@ -569,7 +586,7 @@ func hotelsHandler(w http.ResponseWriter, r *http.Request) {
 
 	ApplyAffiliateLinks(data, trsInt, markerInt, travelToken)
 
-	// log.Printf("Properties: %d  Ads: %d", len(data.Properties), len(data.Ads))
+	log.Printf("Properties: %d  Ads: %d", len(data.Properties), len(data.Ads))
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {

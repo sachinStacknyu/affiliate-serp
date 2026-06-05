@@ -1,4 +1,6 @@
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
+github.com/serpapi/google-search-results-golang v0.0.0-20260216165834-0f349178cf10 h1:6jXmy6syhft5Od/Ad/ny0xsKAxFPWUcVJOftvN+ZTts=
+github.com/serpapi/google-search-results-golang v0.0.0-20260216165834-0f349178cf10/go.mod h1:B4KcaaGbSpn3vq3FxSCsEJrBirStags89KTusB2of58=
 github.com/serpapi/serpapi-golang v0.0.0-20260126142127-0e41c7993cda h1:w3JksZEWJDI7x+No5yh2/8S86hq1dmJy7n5btakG30U=
 github.com/serpapi/serpapi-golang v0.0.0-20260126142127-0e41c7993cda/go.mod h1:xVL4PnCuCPwkXhVVQysVrX3hEv7nWnIbfnDj2B+hsPw=
