@@ -1,11 +1,14 @@
+// we dont need to write the workerpool logic because in the github.com/eclipse/paho.mqtt.golang it is already dealing that thing so we just have to deal with the pub/sub and config  and handle the case for where the publisher is ready but the subscriber is not ready to receiver or vice-versa we doing that with the unbuffered channel here storing the data in the struct in the unbuffered channel here
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
-	"sync"
+	"syscall"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -21,10 +24,13 @@ type Config struct {
 	Persistent bool
 }
 
+type Subscription struct {
+	Topic string
+	QoS   byte
+}
+
 func loadConfig() Config {
-	if err := godotenv.Load(); err != nil {
-		panic("Unable to load environment variables")
-	}
+	_ = godotenv.Load()
 
 	port, err := strconv.Atoi(os.Getenv("MQTT_PORT"))
 	if err != nil {
@@ -41,116 +47,134 @@ func loadConfig() Config {
 	}
 }
 
-type Subscription struct {
-	Topic string
-	QoS   byte
+func onMessageReceived(client mqtt.Client, msg mqtt.Message) {
+	log.Printf(
+		"message received topic=%s payload=%s",
+		msg.Topic(),
+		string(msg.Payload()),
+	)
 }
 
-// subscribeWithWorkerPool subscribes to all topics concurrently using a
-// worker pool. The buffered jobs channel is pre-loaded with all topics so
-// workers can drain it without any producer/consumer timing dependency.
-func subscribeWithWorkerPool(client mqtt.Client, subs []Subscription, workerCount int) {
-	jobs := make(chan Subscription, len(subs))
+func onConnectionLost(client mqtt.Client, err error) {
+	log.Printf("connection lost: %v", err)
+}
 
-	var wg sync.WaitGroup
-
-	// workers
-	for i := range workerCount {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for sub := range jobs {
-				token := client.Subscribe(sub.Topic, sub.QoS, nil)
-				token.Wait()
-				if token.Error() != nil {
-					log.Printf("error:   worker-%d: subscribe to %q failed: %v", id, sub.Topic, token.Error())
-					continue
-				}
-				fmt.Printf("info:  worker-%d: subscribed to %-30s (QoS %d)\n", id, sub.Topic, sub.QoS)
-			}
-		}(i)
-	}
-
-	// Push all jobs into buffered channel — never blocks because buffer == len(subs)
+func subscribeTopics(client mqtt.Client, subs []Subscription) error {
 	for _, sub := range subs {
-		jobs <- sub
+
+		token := client.Subscribe(
+			sub.Topic,
+			sub.QoS,
+			onMessageReceived,
+		)
+
+		token.Wait()
+
+		if err := token.Error(); err != nil {
+			return fmt.Errorf(
+				"subscribe %s failed: %w",
+				sub.Topic,
+				err,
+			)
+		}
+
+		log.Printf(
+			"subscribed topic=%s qos=%d",
+			sub.Topic,
+			sub.QoS,
+		)
 	}
-	close(jobs) // signal workers: no more jobs coming
 
-	wg.Wait() // block until every worker has finished
+	return nil
 }
 
-func onMessageReceived(_ mqtt.Client, msg mqtt.Message) {
-	fmt.Printf("msg:  topic=%-30s payload=%s\n", msg.Topic(), msg.Payload())
-}
+func ConnectToBroker(cfg Config, subs []Subscription) (mqtt.Client, error) {
 
-func onConnectionLost(_ mqtt.Client, err error) {
-	fmt.Printf("[WARN]  connection lost: %v\n", err)
-}
-
-func ConnectToBroker(cfg Config, subs []Subscription, workerCount int) mqtt.Client {
 	subReady := make(chan struct{})
-
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("mqtt://%s:%d", cfg.Host, cfg.Port))
+
+	opts.AddBroker(
+		fmt.Sprintf(
+			"tcp://%s:%d",
+			cfg.Host,
+			cfg.Port,
+		),
+	)
+
 	opts.SetClientID(cfg.ClientID)
 	opts.SetUsername(cfg.Username)
 	opts.SetPassword(cfg.Password)
 
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
-	opts.SetKeepAlive(20 * time.Second)
-	opts.SetCleanSession(!cfg.Persistent)
-	opts.SetConnectTimeout(2 * time.Second)
+	opts.SetCleanSession(false)
 
-	opts.SetWill("clients/disconnect", cfg.ClientID+" disconnected", 1, false)
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetPingTimeout(10 * time.Second)
+	opts.SetConnectTimeout(10 * time.Second)
 
-	opts.SetDefaultPublishHandler(onMessageReceived)
+	opts.SetWill(
+		"clients/status",
+		cfg.ClientID+" offline",
+		1,
+		true,
+	)
+
 	opts.OnConnectionLost = onConnectionLost
 
 	opts.OnConnect = func(client mqtt.Client) {
-		fmt.Println("info:   MQTT Broker Connected")
 
-		// All subscriptions happen concurrently via worker pool
-		subscribeWithWorkerPool(client, subs, workerCount)
+		log.Println("mqtt connected")
 
-		// Signal main goroutine that all subs are ready
-		// Guard against reconnect case (channel already closed)
+		if err := subscribeTopics(client, subs); err != nil {
+			log.Printf("subscription error: %v", err)
+			return
+		}
+
 		select {
 		case <-subReady:
-			// already closed — reconnect, do nothing
 		default:
 			close(subReady)
 		}
 	}
 
 	client := mqtt.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.Fatalf("error:   Connect failed: %v", token.Error())
+
+	token := client.Connect()
+	token.Wait()
+
+	if err := token.Error(); err != nil {
+		return nil, err
 	}
 
-	// Block main goroutine until all subscriptions are confirmed
 	<-subReady
 
-	return client
+	return client, nil
 }
 
-func publish(client mqtt.Client, topic string, payload string, qos byte) {
-	token := client.Publish(topic, qos, false, payload)
+func publish(
+	client mqtt.Client,
+	topic string,
+	payload string,
+	qos byte,
+) error {
+
+	token := client.Publish(
+		topic,
+		qos,
+		false,
+		payload,
+	)
+
 	token.Wait()
-	if token.Error() != nil {
-		fmt.Printf("error:   publish to %q failed: %v\n", topic, token.Error())
-		return
-	}
-	fmt.Printf("pub:    topic=%-30s payload=%s\n", topic, payload)
+
+	return token.Error()
 }
 
 func main() {
-	fmt.Println("info:   Connecting to Broker .......")
 
 	cfg := loadConfig()
 
-	// Define all topics to subscribe to
 	subscriptions := []Subscription{
 		{Topic: "devices/#", QoS: 1},
 		{Topic: "sachin/testing", QoS: 1},
@@ -158,20 +182,40 @@ func main() {
 		{Topic: "meetBhai/quant", QoS: 1},
 	}
 
-	// Connect + subscribe concurrently using 3 workers
-	// Main blocks here until all subscriptions are confirmed
-	client := ConnectToBroker(cfg, subscriptions, 2)
-	defer client.Disconnect(2500)
+	client, err := ConnectToBroker(
+		cfg,
+		subscriptions,
+	)
 
-	// Safe to publish — all subscriptions are guaranteed active
-	publish(client, "devices/test", "hello from mqtt-go-tutorial", 1)
-	publish(client, "sachin/testing", "testing if publish works", 1)
-	publish(client, "jaydeepBhai/shpdex", "sphdex sanity done", 1)
-	publish(client, "meetBhai/quant", "Quant Works well", 1)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Keep alive to receive incoming messages
-	fmt.Println("info:   Listening for messages (20s)...")
-	time.Sleep(20 * time.Second)
+	defer client.Disconnect(1000)
 
-	fmt.Println("info:   Done. Disconnecting.")
+	if err := publish(client, "devices/test", "hello from mqtt", 1); err != nil {
+		log.Printf("publish error: %v", err)
+	}
+	if err := publish(client, "sachin/testing", "hello from sachin if it works or not", 1); err != nil {
+		log.Printf("publish error %v", err)
+	}
+	if err := publish(client, "jaydeepBhai/sphdex", "hello jaydeep bhai Sphdex sanity works", 1); err != nil {
+		log.Printf("publish error %v", err)
+	}
+	if err := publish(client, "meetBhai/quant", "quant works perfectly fine", 1); err != nil {
+		log.Printf("publish error %v", err)
+	}
+
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	log.Println("service started")
+
+	<-ctx.Done()
+
+	log.Println("shutting down")
 }
