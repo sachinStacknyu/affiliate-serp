@@ -1,4 +1,10 @@
-// we dont need to write the workerpool logic because in the github.com/eclipse/paho.mqtt.golang it is already dealing that thing so we just have to deal with the pub/sub and config  and handle the case for where the publisher is ready but the subscriber is not ready to receiver or vice-versa we doing that with the unbuffered channel here storing the data in the struct in the unbuffered channel here
+// we dont need to write the workerpool logic because in the
+// github.com/eclipse/paho.mqtt.golang it is already dealing
+// that thing so we just have to deal with the pub/sub and config
+// and handle the case for where the publisher is ready but the
+// subscriber is not ready to receiver or vice-versa we doing that
+// with the unbuffered channel here storing the data in the struct
+// in the unbuffered channel here
 package main
 
 import (
